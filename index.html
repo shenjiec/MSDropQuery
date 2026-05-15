@@ -223,12 +223,15 @@
     }
 
     // 初始化系統：讀取 5 個檔案
-    async function init() {
+async function init() {
         const statusEl = document.getElementById('loaderStatus');
         const inputEl = document.getElementById('searchInput');
         const btnEl = document.getElementById('searchBtn');
 
         try {
+            // 0. 手動加入楓幣處理
+            itemDict["0"] = "楓幣";
+
             // 1. 載入怪物
             const mobXml = await fetchXML('Mob.img.xml');
             parseImgdir(mobXml.documentElement, mobDict);
@@ -255,22 +258,19 @@
                 chance: r.querySelector("chance")?.textContent || "0"
             }));
 
-            // 更新 UI 狀態
             statusEl.innerHTML = `
                 <span style="color: #2ecc71;">● 系統就緒</span>
                 <span>怪物: ${Object.keys(mobDict).length} | 道具: ${Object.keys(itemDict).length} | 掉落: ${dropRecords.length}</span>
             `;
             inputEl.disabled = false;
             btnEl.disabled = false;
-            document.getElementById('resultBody').innerHTML = '<tr><td colspan="4" style="color: #95a5a6;">載入成功！請在上方輸入關鍵字查詢。</td></tr>';
+            document.getElementById('resultBody').innerHTML = '<tr><td colspan="4" style="color: #95a5a6;">載入成功！</td></tr>';
 
         } catch (err) {
             statusEl.innerHTML = `<span style="color: #e74c3c;">● 初始化失敗: ${err.message}</span>`;
-            console.error(err);
         }
     }
 
-    // 執行查詢邏輯
     function doSearch() {
         const keyword = document.getElementById('searchInput').value.trim().toLowerCase();
         const tbody = document.getElementById('resultBody');
@@ -278,7 +278,6 @@
 
         if (!keyword) return;
 
-        // 找出符合關鍵字的 ID 清單 (包含 ID 本身或名稱)
         const matchedMobIds = Object.keys(mobDict).filter(id => 
             id === keyword || mobDict[id].toLowerCase().includes(keyword)
         );
@@ -286,34 +285,49 @@
             id === keyword || itemDict[id].toLowerCase().includes(keyword)
         );
 
-        // 從主表篩選 (怪物匹配 OR 道具匹配)
-        const filtered = dropRecords.filter(r => 
+        // 篩選並進行排序
+        let filtered = dropRecords.filter(r => 
             matchedMobIds.includes(r.mid) || matchedItemIds.includes(r.iid)
         );
+
+        // --- 排序邏輯修正 ---
+        filtered.sort((a, b) => {
+            const nameA = mobDict[a.mid] || "";
+            const nameB = mobDict[b.mid] || "";
+            
+            // 先按怪物名稱排序
+            if (nameA < nameB) return -1;
+            if (nameA > nameB) return 1;
+
+            // 名稱相同時，再按道具 ID 或名稱排序 (讓同怪物的掉寶聚在一起)
+            return parseInt(a.iid) - parseInt(b.iid);
+        });
 
         countEl.innerText = `找到 ${filtered.length} 筆結果`;
         tbody.innerHTML = '';
 
         if (filtered.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="4" style="padding: 40px; color: #95a5a6;">找不到符合「' + keyword + '」的資料</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="4" style="padding: 40px; color: #95a5a6;">找不到資料</td></tr>';
             return;
         }
 
         filtered.forEach(r => {
             const tr = document.createElement('tr');
-            
-            // 機率換算 (假設 1,000,000 為 100%)
             const chanceVal = (parseInt(r.chance) / 10000).toFixed(4);
             
+            // 取得怪物與道具名稱
+            const mName = mobDict[r.mid] || '未知怪物';
+            const iName = itemDict[r.iid] || '未知道具';
+
             tr.innerHTML = `
                 <td>
                     <span class="tag tag-mob">怪物</span>
-                    <strong>${mobDict[r.mid] || '未知'}</strong>
+                    <strong>${mName}</strong>
                     <span class="id-text">ID: ${r.mid}</span>
                 </td>
                 <td>
                     <span class="tag tag-item">道具</span>
-                    <strong>${itemDict[r.iid] || '未知'}</strong>
+                    <strong>${iName}</strong>
                     <span class="id-text">ID: ${r.iid}</span>
                 </td>
                 <td>${r.min} ~ ${r.max}</td>
