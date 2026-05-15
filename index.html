@@ -286,10 +286,11 @@ async function init() {
         );
 
         // 篩選並進行排序
+        const blackList = ["0", "4001126"]; // 楓幣、楓葉
         let filtered = dropRecords.filter(r => {
             const isMatch = matchedMobIds.includes(r.mid) || matchedItemIds.includes(r.iid);
-            const isNotMoney = r.iid !== "0"; // 過濾掉 ID 為 0 的項目
-            return isMatch && isNotMoney;
+            const isAllowed = !blackList.includes(r.iid); // 只要 ID 不在黑名單裡就是 true
+            return isMatch && isAllowed;
         });
 
         // --- 排序邏輯修正 ---
