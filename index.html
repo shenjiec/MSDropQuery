@@ -294,12 +294,21 @@ async function init() {
         filtered.sort((a, b) => {
             const nameA = mobDict[a.mid] || "";
             const nameB = mobDict[b.mid] || "";
-            
-            // 先按怪物名稱排序
+
+            // 1. 如果其中一個名稱跟關鍵字完全一樣，讓它排最前面
+            if (nameA === keyword && nameB !== keyword) return -1;
+            if (nameB === keyword && nameA !== keyword) return 1;
+
+            // 2. 如果關鍵字不是完全一樣，則比較名稱長度 (短的排前面，例如 黑肥肥 < 鋼之黑肥肥)
+            if (nameA.length !== nameB.length) {
+                return nameA.length - nameB.length;
+            }
+
+            // 3. 如果長度也一樣，則按照字母/編碼排序
             if (nameA < nameB) return -1;
             if (nameA > nameB) return 1;
 
-            // 名稱相同時，再按道具 ID 或名稱排序 (讓同怪物的掉寶聚在一起)
+            // 4. 最後如果怪物一樣，按道具 ID 排序
             return parseInt(a.iid) - parseInt(b.iid);
         });
 
