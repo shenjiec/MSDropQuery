@@ -154,7 +154,7 @@
 <body>
 
 <div class="container">
-    <h2>💎 掉寶資料庫查詢系統</h2>
+    <h2>掉寶資料庫查詢系統</h2>
     
     <div id="loaderStatus" class="status-bar">
         <span>系統初始化中...</span>
@@ -286,9 +286,11 @@ async function init() {
         );
 
         // 篩選並進行排序
-        let filtered = dropRecords.filter(r => 
-            matchedMobIds.includes(r.mid) || matchedItemIds.includes(r.iid)
-        );
+        let filtered = dropRecords.filter(r => {
+            const isMatch = matchedMobIds.includes(r.mid) || matchedItemIds.includes(r.iid);
+            const isNotMoney = r.iid !== "0"; // 過濾掉 ID 為 0 的項目
+            return isMatch && isNotMoney;
+        });
 
         // --- 排序邏輯修正 ---
         filtered.sort((a, b) => {
