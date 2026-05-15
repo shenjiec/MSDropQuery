@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>怪物掉寶查詢系統</title>
+    <style>
+        :root {
+            --primary-color: #2ecc71;
+            --bg-color: #2c3e50;
+            --card-bg: #34495e;
+            --text-color: #ecf0f1;
+        }
+
+        body {
+            font-family: "Segoe UI", "Microsoft JhengHei", sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            background: var(--card-bg);
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        }
+
+        h2 {
+            text-align: center;
+            color: var(--primary-color);
+            margin-top: 0;
+            letter-spacing: 2px;
+            border-bottom: 2px solid #455a64;
+            padding-bottom: 15px;
+        }
+
+        .status-bar {
+            background: #1a252f;
+            padding: 10px 15px;
+            border-radius: 8px;
+            font-size: 14px;
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            border-left: 4px solid var(--primary-color);
+        }
+
+        .search-section {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 30px;
+        }
+
+        input {
+            flex: 1;
+            padding: 15px;
+            border-radius: 8px;
+            border: none;
+            font-size: 16px;
+            background: #ecf0f1;
+            color: #333;
+        }
+
+        button {
+            padding: 0 30px;
+            background-color: var(--primary-color);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: transform 0.1s, background 0.3s;
+        }
+
+        button:hover {
+            background-color: #27ae60;
+        }
+
+        button:active {
+            transform: scale(0.95);
+        }
+
+        .result-info {
+            margin-bottom: 10px;
+            font-size: 14px;
+            color: #bdc3c7;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+            color: #333;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+
+        th {
+            background: #27ae60;
+            color: white;
+            padding: 15px;
+            font-size: 16px;
+        }
+
+        td {
+            padding: 15px;
+            border-bottom: 1px solid #eee;
+            text-align: center;
+        }
+
+        tr:last-child td {
+            border-bottom: none;
+        }
+
+        tr:hover {
+            background-color: #f8fdfa;
+        }
+
+        .tag {
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: bold;
+            color: white;
+            margin-bottom: 5px;
+            display: inline-block;
+        }
+
+        .tag-mob { background: #e67e22; }
+        .tag-item { background: #3498db; }
+
+        .chance-text {
+            color: #e74c3c;
+            font-weight: bold;
+        }
+
+        .id-text {
+            font-size: 11px;
+            color: #7f8c8d;
+            display: block;
+        }
+
+        @media (max-width: 600px) {
+            .search-section { flex-direction: column; }
+            table { font-size: 14px; }
+            th, td { padding: 10px 5px; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>💎 掉寶資料庫查詢系統</h2>
+    
+    <div id="loaderStatus" class="status-bar">
+        <span>系統初始化中...</span>
+    </div>
+
+    <div class="search-section">
+        <input type="text" id="searchInput" placeholder="輸入怪物、道具名稱或 ID..." disabled>
+        <button id="searchBtn" onclick="doSearch()" disabled>搜尋</button>
+    </div>
+
+    <div id="resultCount" class="result-info"></div>
+
+    <div style="overflow-x: auto;">
+        <table>
+            <thead>
+                <tr>
+                    <th>來源怪物</th>
+                    <th>掉落物品</th>
+                    <th>數量</th>
+                    <th>機率</th>
+                </tr>
+            </thead>
+            <tbody id="resultBody">
+                <tr>
+                    <td colspan="4" style="padding: 50px; color: #95a5a6;">請先等待檔案載入完成</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+    // 全域資料儲存
+    let mobDict = {};
+    let itemDict = {};
+    let dropRecords = [];
+
+    // --- 核心解析函式 ---
+
+    // 遞迴解析 imgdir 結構
+    function parseImgdir(node, targetDict) {
+        if (node.nodeName === "imgdir") {
+            const id = node.getAttribute("name");
+            // 嘗試尋找該層級下的 <string name="name" value="..." />
+            const nameNode = node.querySelector(':scope > string[name="name"]');
+            
+            if (id && !isNaN(id) && nameNode) {
+                targetDict[id] = nameNode.getAttribute("value");
+            }
+        }
+        
+        // 繼續往子層找
+        for (let child of node.childNodes) {
+            if (child.nodeType === 1) parseImgdir(child, targetDict);
+        }
+    }
+
+    // 載入單一 XML 檔案
+    async function fetchXML(fileName) {
+        // 加上時間戳記防止 GitHub Pages 的快取問題
+        const cacheBuster = `?v=${new Date().getTime()}`;
+        const response = await fetch(`./${fileName}${cacheBuster}`);
+        if (!response.ok) throw new Error(`無法讀取檔案: ${fileName}`);
+        const text = await response.text();
+        return new DOMParser().parseFromString(text, "text/xml");
+    }
+
+    // 初始化系統：讀取 5 個檔案
+    async function init() {
+        const statusEl = document.getElementById('loaderStatus');
+        const inputEl = document.getElementById('searchInput');
+        const btnEl = document.getElementById('searchBtn');
+
+        try {
+            // 1. 載入怪物
+            const mobXml = await fetchXML('Mob.img.xml');
+            parseImgdir(mobXml.documentElement, mobDict);
+
+            // 2. 載入道具 (Eqp, Consume, Etc)
+            const itemFiles = ['Eqp.img.xml', 'Consume.img.xml', 'Etc.img.xml'];
+            for (const file of itemFiles) {
+                try {
+                    const xml = await fetchXML(file);
+                    parseImgdir(xml.documentElement, itemDict);
+                } catch (e) {
+                    console.warn(`跳過檔案 ${file}: ${e.message}`);
+                }
+            }
+
+            // 3. 載入掉落主表
+            const dropXml = await fetchXML('drop_data.xml');
+            const records = dropXml.querySelectorAll("RECORD");
+            dropRecords = Array.from(records).map(r => ({
+                mid: r.querySelector("dropperid")?.textContent || "",
+                iid: r.querySelector("itemid")?.textContent || "",
+                min: r.querySelector("minimum_quantity")?.textContent || r.querySelector("min")?.textContent || "1",
+                max: r.querySelector("maximum_quantity")?.textContent || r.querySelector("max")?.textContent || "1",
+                chance: r.querySelector("chance")?.textContent || "0"
+            }));
+
+            // 更新 UI 狀態
+            statusEl.innerHTML = `
+                <span style="color: #2ecc71;">● 系統就緒</span>
+                <span>怪物: ${Object.keys(mobDict).length} | 道具: ${Object.keys(itemDict).length} | 掉落: ${dropRecords.length}</span>
+            `;
+            inputEl.disabled = false;
+            btnEl.disabled = false;
+            document.getElementById('resultBody').innerHTML = '<tr><td colspan="4" style="color: #95a5a6;">載入成功！請在上方輸入關鍵字查詢。</td></tr>';
+
+        } catch (err) {
+            statusEl.innerHTML = `<span style="color: #e74c3c;">● 初始化失敗: ${err.message}</span>`;
+            console.error(err);
+        }
+    }
+
+    // 執行查詢邏輯
+    function doSearch() {
+        const keyword = document.getElementById('searchInput').value.trim().toLowerCase();
+        const tbody = document.getElementById('resultBody');
+        const countEl = document.getElementById('resultCount');
+
+        if (!keyword) return;
+
+        // 找出符合關鍵字的 ID 清單 (包含 ID 本身或名稱)
+        const matchedMobIds = Object.keys(mobDict).filter(id => 
+            id === keyword || mobDict[id].toLowerCase().includes(keyword)
+        );
+        const matchedItemIds = Object.keys(itemDict).filter(id => 
+            id === keyword || itemDict[id].toLowerCase().includes(keyword)
+        );
+
+        // 從主表篩選 (怪物匹配 OR 道具匹配)
+        const filtered = dropRecords.filter(r => 
+            matchedMobIds.includes(r.mid) || matchedItemIds.includes(r.iid)
+        );
+
+        countEl.innerText = `找到 ${filtered.length} 筆結果`;
+        tbody.innerHTML = '';
+
+        if (filtered.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="4" style="padding: 40px; color: #95a5a6;">找不到符合「' + keyword + '」的資料</td></tr>';
+            return;
+        }
+
+        filtered.forEach(r => {
+            const tr = document.createElement('tr');
+            
+            // 機率換算 (假設 1,000,000 為 100%)
+            const chanceVal = (parseInt(r.chance) / 10000).toFixed(4);
+            
+            tr.innerHTML = `
+                <td>
+                    <span class="tag tag-mob">怪物</span>
+                    <strong>${mobDict[r.mid] || '未知'}</strong>
+                    <span class="id-text">ID: ${r.mid}</span>
+                </td>
+                <td>
+                    <span class="tag tag-item">道具</span>
+                    <strong>${itemDict[r.iid] || '未知'}</strong>
+                    <span class="id-text">ID: ${r.iid}</span>
+                </td>
+                <td>${r.min} ~ ${r.max}</td>
+                <td><span class="chance-text">${chanceVal}%</span></td>
+            `;
+            tbody.appendChild(tr);
+        });
+    }
+
+    // 監聽鍵盤 Enter
+    document.getElementById('searchInput').addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') doSearch();
+    });
+
+    // 啟動系統
+    init();
+</script>
+
+</body>
+</html>
